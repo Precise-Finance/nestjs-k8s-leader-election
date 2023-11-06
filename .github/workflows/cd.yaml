@@ -1,0 +1,53 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build_and_publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Azure npm auth
+        uses: ponicode/azure-devops-npm-action@master
+        with:
+          organisation: precise-finance
+          project: precise-finance
+          registry: precise-npm
+          user: danshapir
+          password: ${{ secrets.AZURE_PAT }}
+          email: dan@precisefinance.ai
+
+      - name: Copy .npmrc file to home directory
+        run: cp `pwd`/.npmrc ~
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4.0.0
+        with:
+          node-version: '18'
+          registry-url: https://pkgs.dev.azure.com/precise-finance/_packaging/precise-npm/npm/registry/
+          scope: '@precisefinance' # Replace with your scope if needed
+          
+      - name: Cache node_modules
+        id: cache-node-modules  # Added an ID for this step
+        uses: actions/cache@v3
+        with:
+          path: node_modules  # caching node_modules directly
+          key: ${{ runner.os }}-node-modules-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-modules-
+      
+      - name: Install Dependencies
+        if: steps.cache-node-modules.outputs.cache-hit != 'true'  # Only run if cache was a miss
+        run: npm ci
+
+      - name: Build the package
+        run: npm run build # Assumes you have a "build" script in your package.json
+
+      - name: Publish the package
+        run: npm publish
