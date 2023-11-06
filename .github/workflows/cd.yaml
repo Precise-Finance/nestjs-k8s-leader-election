@@ -17,7 +17,7 @@ jobs:
         uses: actions/setup-node@v4.0.0
         with:
           node-version: '18'
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: 'https://pkgs.dev.azure.com/precise-finance/precise-finance/_packaging/precise-npm/npm/registry/'
           
       - name: Cache node_modules
         id: cache-node-modules  # Added an ID for this step
