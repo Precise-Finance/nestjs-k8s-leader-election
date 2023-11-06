@@ -1,0 +1,15 @@
+.github
+.husky
+.vscode
+node_modules
+src
+.editorconfig
+.eslintcache
+.eslintignore
+.eslintrc.js
+.prettierrc.js
+CHANGELOG.md
+commitlint.config.js
+REFERENCE.md
+*.tsbuildinfo
+tsconfig.json

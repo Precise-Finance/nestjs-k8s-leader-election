@@ -1,8 +1,8 @@
 {
   "name": "nestjs-k8s-leader-election",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Nestjs k8s leader election",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "test:ci": "jest --ci --coverage --reporters=default --reporters=jest-junit"
@@ -44,9 +44,6 @@
     "@nestjs/core": "^8.0.0 || ^9.0.0 || ^10.0.0",
     "@nestjs/event-emitter": "^2.0.2"
   },
-  "files": [
-    "dist/**/*"
-  ],
   "jest": {
     "moduleFileExtensions": [
       "js",
