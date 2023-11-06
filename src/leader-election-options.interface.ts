@@ -5,3 +5,6 @@ export interface LeaderElectionOptions {
 }
 
 export const LEADER_ELECTION_OPTIONS = 'LEADER_ELECTION_OPTIONS';
+
+export const LeaderElectedEvent = 'leader.elected';
+export const LeaderLostEvent = 'leader.lost';

@@ -12,7 +12,7 @@ import {
   V1MicroTime,
 } from "@kubernetes/client-node";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { LeaderElectionOptions } from "./leader-election-options.interface";
+import { LeaderElectedEvent, LeaderElectionOptions, LeaderLostEvent } from "./leader-election-options.interface";
 
 @Injectable()
 export class LeaderElectionService implements OnApplicationBootstrap {
@@ -232,12 +232,12 @@ export class LeaderElectionService implements OnApplicationBootstrap {
   }
 
   private emitLeaderElectedEvent() {
-    this.eventEmitter.emit('leader.elected', { leaseName: this.leaseName });
+    this.eventEmitter.emit(LeaderElectedEvent, { leaseName: this.leaseName });
     this.logger.log(`Instance became the leader for lease: ${this.leaseName}`);
   }
 
   private emitLeadershipLostEvent() {
-    this.eventEmitter.emit('leader.lost', { leaseName: this.leaseName });
+    this.eventEmitter.emit(LeaderLostEvent, { leaseName: this.leaseName });
     this.logger.log(`Instance lost the leadership for lease: ${this.leaseName}`);
   }
 }
