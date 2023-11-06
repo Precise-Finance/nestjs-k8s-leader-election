@@ -34,10 +34,6 @@ jobs:
       - name: Build the package
         run: npm run build # Assumes you have a "build" script in your package.json
 
-      # Debug: Print out the contents of the .npmrc file (Make sure to redact sensitive information)
-      - name: Print .npmrc
-        run: cat .npmrc
-
       - name: Publish the package
         run: npm publish --verbose
         env:
