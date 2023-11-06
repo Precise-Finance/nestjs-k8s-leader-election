@@ -17,7 +17,7 @@ jobs:
         uses: actions/setup-node@v4.0.0
         with:
           node-version: '18'
-          registry-url: 'https://pkgs.dev.azure.com/precise-finance/precise-finance/_packaging/precise-npm/npm/registry/'
+          registry-url: 'https://registry.npmjs.org'
           
       - name: Cache node_modules
         id: cache-node-modules  # Added an ID for this step
@@ -35,10 +35,10 @@ jobs:
       - name: Build the package
         run: npm run build # Assumes you have a "build" script in your package.json
 
-      # - name: Verify npm authentication
-      #   run: npm whoami
-      #   env:
-      #     NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PAT }}
+      - name: Verify npm authentication
+        run: npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PAT }}
   
 
       - name: Publish the package
