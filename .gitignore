@@ -1,6 +1,7 @@
 /dist
 /node_modules
 /coverage
+/reports
 /.nyc_output
 test-results.xml
 
