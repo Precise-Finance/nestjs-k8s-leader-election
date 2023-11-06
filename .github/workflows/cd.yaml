@@ -34,6 +34,12 @@ jobs:
       - name: Build the package
         run: npm run build # Assumes you have a "build" script in your package.json
 
+      - name: Verify npm authentication
+        run: npm whoami
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PAT }}
+  
+
       - name: Publish the package
         run: npm publish --verbose
         env:
