@@ -13,16 +13,7 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    - uses: ponicode/azure-devops-npm-action@master
-      with:
-          organisation: precise-finance
-          project: precise-finance
-          registry: precise-npm
-          user: danshapir
-          password: ${{ secrets.AZURE_PAT }}
-          email: dan@precisefinance.ai
-          # scope: ponicode
-    - run: cp `pwd`/.npmrc ~ # We need the .npmrc file in the $HOME directory
+
     - name: Setup Node.js
       uses: actions/setup-node@v4.0.0
       with:

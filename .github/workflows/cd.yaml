@@ -13,19 +13,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Azure npm auth
-        uses: Precise-Finance/azure-devops-npm-action@v1
-        with:
-          organisation: precise-finance
-          project: precise-finance
-          registry: precise-npm
-          user: danshapir
-          password: ${{ secrets.AZURE_PAT }}
-          email: dan@precisefinance.ai
-
-      - name: Copy .npmrc file to home directory
-        run: cp `pwd`/.npmrc ~
-
       - name: Setup Node.js
         uses: actions/setup-node@v4.0.0
         with:
@@ -54,4 +41,4 @@ jobs:
       - name: Publish the package
         run: npm publish --verbose
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.AZURE_PAT }} # This should match the name of your secret
+          NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PAT }} # This should match the name of your secret
