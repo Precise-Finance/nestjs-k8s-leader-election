@@ -42,7 +42,14 @@ export class LeaderElectionService implements OnApplicationBootstrap {
   }
 
   async onApplicationBootstrap() {
-    await this.electionLoop();
+    // If specific Kubernetes environment variables are not set, assume not running in k8s
+    if (!process.env.KUBERNETES_SERVICE_HOST) {
+      this.logger.log('Not running in Kubernetes, assuming leadership...');
+      this.isLeader = true;
+      this.emitLeaderElectedEvent();
+    } else {
+      await this.electionLoop();
+    }
   }
 
   private async gracefulShutdown() {
