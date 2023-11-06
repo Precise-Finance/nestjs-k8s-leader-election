@@ -53,3 +53,5 @@ jobs:
 
       - name: Publish the package
         run: npm publish --verbose
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.AZURE_PAT }} # This should match the name of your secret
