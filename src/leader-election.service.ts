@@ -21,6 +21,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
   private leaseName: string;
   private namespace: string;
   private renewalInterval: number;
+  private durationInSeconds: number;
   private isLeader = false;
   private wasLeader = false;
 
@@ -36,6 +37,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
     this.leaseName = options.leaseName ?? "nestjs-leader-election";
     this.namespace = options.namespace ?? "default";
     this.renewalInterval = options.renewalInterval ?? 10000;
+    this.durationInSeconds = 2 * (this.renewalInterval) / 1000;
 
     process.on("SIGINT", () => this.gracefulShutdown());
     process.on("SIGTERM", () => this.gracefulShutdown());
@@ -142,7 +144,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
     lease.metadata = { name: this.leaseName, namespace: this.namespace };
     lease.spec = {
       holderIdentity: `${this.leaseName}-${Date.now()}`,
-      leaseDurationSeconds: 15,
+      leaseDurationSeconds: this.durationInSeconds,
       acquireTime: new V1MicroTime(),
       renewTime: new V1MicroTime(),
     };

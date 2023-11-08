@@ -1,6 +1,6 @@
 {
   "name": "nestjs-k8s-leader-election",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Nestjs k8s leader election",
   "main": "dist/index.js",
   "scripts": {
