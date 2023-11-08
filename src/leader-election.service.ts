@@ -2,8 +2,8 @@ import {
   Injectable,
   Logger,
   OnApplicationBootstrap,
-  Inject
-} from '@nestjs/common';
+  Inject,
+} from "@nestjs/common";
 import {
   KubeConfig,
   CoordinationV1Api,
@@ -11,10 +11,14 @@ import {
   V1ObjectMeta,
   V1LeaseSpec,
   Watch,
-  V1MicroTime
-} from '@kubernetes/client-node';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { LeaderElectedEvent, LeaderElectionOptions, LeaderLostEvent } from './leader-election-options.interface';
+  V1MicroTime,
+} from "@kubernetes/client-node";
+import { EventEmitter2 } from "@nestjs/event-emitter";
+import {
+  LeaderElectedEvent,
+  LeaderElectionOptions,
+  LeaderLostEvent,
+} from "./leader-election-options.interface";
 
 @Injectable()
 export class LeaderElectionService implements OnApplicationBootstrap {
@@ -26,11 +30,12 @@ export class LeaderElectionService implements OnApplicationBootstrap {
   private renewalInterval: number;
   private durationInSeconds: number;
   private isLeader = false;
-  private logAtLevel: 'log' | 'debug';
+  private logAtLevel: "log" | "debug";
   private leaseRenewalTimeout: NodeJS.Timeout | null = null;
+  LEADER_IDENTITY = `nestjs-${process.env.HOSTNAME}`;
 
   constructor(
-    @Inject('LEADER_ELECTION_OPTIONS') private options: LeaderElectionOptions,
+    @Inject("LEADER_ELECTION_OPTIONS") private options: LeaderElectionOptions,
     private readonly eventEmitter: EventEmitter2
   ) {
     const kubeConfig = new KubeConfig();
@@ -38,19 +43,21 @@ export class LeaderElectionService implements OnApplicationBootstrap {
     this.kubeClient = kubeConfig.makeApiClient(CoordinationV1Api);
     this.watch = new Watch(kubeConfig);
 
-    this.leaseName = options.leaseName ?? 'nestjs-leader-election';
-    this.namespace = options.namespace ?? 'default';
+    this.leaseName = options.leaseName ?? "nestjs-leader-election";
+    this.namespace = options.namespace ?? "default";
     this.renewalInterval = options.renewalInterval ?? 10000;
     this.durationInSeconds = 2 * (this.renewalInterval / 1000);
-    this.logAtLevel = options.logAtLevel ?? 'log';
+    this.logAtLevel = options.logAtLevel ?? "log";
 
-    process.on('SIGINT', () => this.gracefulShutdown());
-    process.on('SIGTERM', () => this.gracefulShutdown());
+    process.on("SIGINT", () => this.gracefulShutdown());
+    process.on("SIGTERM", () => this.gracefulShutdown());
   }
 
   async onApplicationBootstrap() {
     if (!process.env.KUBERNETES_SERVICE_HOST) {
-      this.logger[this.logAtLevel]('Not running in Kubernetes, assuming leadership...');
+      this.logger[this.logAtLevel](
+        "Not running in Kubernetes, assuming leadership..."
+      );
       this.isLeader = true;
       this.emitLeaderElectedEvent();
     } else {
@@ -63,14 +70,39 @@ export class LeaderElectionService implements OnApplicationBootstrap {
     try {
       let lease: V1Lease = await this.getLease();
       if (this.isLeaseExpired(lease) || !lease.spec.holderIdentity) {
-        this.logger[this.logAtLevel]('Lease expired or not held. Attempting to become leader...');
-        lease = await this.createLease();
+        this.logger[this.logAtLevel](
+          "Lease expired or not held. Attempting to become leader..."
+        );
+        lease = await this.acquireLease(lease);
       }
       if (this.isLeaseHeldByUs(lease)) {
         this.becomeLeader();
       }
     } catch (error) {
-      this.logger.error({ message: 'Error while trying to become leader', error });
+      this.logger.error({
+        message: "Error while trying to become leader",
+        error,
+      });
+    }
+  }
+
+  private async acquireLease(lease: V1Lease): Promise<V1Lease> {
+    // Set this instance as the holder of the lease
+    lease.spec.holderIdentity = this.LEADER_IDENTITY;
+    lease.spec.acquireTime = new V1MicroTime(new Date());
+    lease.spec.renewTime = new V1MicroTime(new Date());
+
+    try {
+      const { body } = await this.kubeClient.replaceNamespacedLease(
+        this.leaseName,
+        this.namespace,
+        lease
+      );
+      this.logger[this.logAtLevel]("Successfully acquired lease");
+      return body;
+    } catch (error) {
+      this.logger.error({ message: "Error while acquiring lease", error });
+      throw error;
     }
   }
 
@@ -78,20 +110,35 @@ export class LeaderElectionService implements OnApplicationBootstrap {
     try {
       let lease: V1Lease = await this.getLease();
       if (this.isLeaseHeldByUs(lease)) {
-        this.logger[this.logAtLevel]('Renewing lease...');
-        await this.updateLease(lease);
+        this.logger[this.logAtLevel]("Renewing lease...");
+        lease.spec.renewTime = new V1MicroTime(new Date());
+        try {
+          const { body } = await this.kubeClient.replaceNamespacedLease(
+            this.leaseName,
+            this.namespace,
+            lease
+          );
+          this.logger[this.logAtLevel]("Successfully renewed lease");
+          return body;
+        } catch (error) {
+          this.logger.error({ message: "Error while renewing lease", error });
+          throw error;
+        }
       } else {
         this.loseLeadership();
       }
     } catch (error) {
-      this.logger.error({ message: 'Error while renewing lease', error });
+      this.logger.error({ message: "Error while renewing lease", error });
       this.loseLeadership();
     }
   }
 
   private async getLease(): Promise<V1Lease> {
     try {
-      const { body } = await this.kubeClient.readNamespacedLease(this.leaseName, this.namespace);
+      const { body } = await this.kubeClient.readNamespacedLease(
+        this.leaseName,
+        this.namespace
+      );
       return body;
     } catch (error) {
       if (error.response && error.response.statusCode === 404) {
@@ -110,52 +157,41 @@ export class LeaderElectionService implements OnApplicationBootstrap {
         namespace: this.namespace,
       },
       spec: {
-        holderIdentity: `nestjs-${process.env.HOSTNAME}`,
+        holderIdentity: this.LEADER_IDENTITY,
         leaseDurationSeconds: this.durationInSeconds,
-        acquireTime:  new V1MicroTime(new Date()),
+        acquireTime: new V1MicroTime(new Date()),
         renewTime: new V1MicroTime(new Date()),
       },
     };
 
     try {
-      const { body } = await this.kubeClient.createNamespacedLease(this.namespace, lease);
-      this.logger[this.logAtLevel]('Successfully created lease');
-      return body;
-    } catch (error) {
-      this.logger.error({ message: 'Failed to create lease', error });
-      throw error;
-    }
-  }
-
-  private async updateLease(lease: V1Lease): Promise<V1Lease> {
-    lease.spec.renewTime = new V1MicroTime(new Date());
-    try {
-      const { body } = await this.kubeClient.replaceNamespacedLease(
-        this.leaseName,
+      const { body } = await this.kubeClient.createNamespacedLease(
         this.namespace,
         lease
       );
+      this.logger[this.logAtLevel]("Successfully created lease");
       return body;
     } catch (error) {
-      this.logger.error({ message: "Error while updating lease", error });
+      this.logger.error({ message: "Failed to create lease", error });
       throw error;
     }
   }
 
-  
   private isLeaseExpired(lease: V1Lease): boolean {
-    const renewTime = lease.spec.renewTime ? new Date(lease.spec.renewTime).getTime() : 0;
-    const leaseDurationMs = (lease.spec.leaseDurationSeconds || this.durationInSeconds) * 1000;
+    const renewTime = lease.spec.renewTime
+      ? new Date(lease.spec.renewTime).getTime()
+      : 0;
+    const leaseDurationMs =
+      (lease.spec.leaseDurationSeconds || this.durationInSeconds) * 1000;
     return Date.now() > renewTime + leaseDurationMs;
   }
 
-
   private isLeaseHeldByUs(lease: V1Lease): boolean {
-    return lease.spec.holderIdentity === `nestjs-${process.env.HOSTNAME}`;
+    return lease.spec.holderIdentity === this.LEADER_IDENTITY;
   }
 
   private async gracefulShutdown() {
-    this.logger[this.logAtLevel]('Graceful shutdown initiated');
+    this.logger[this.logAtLevel]("Graceful shutdown initiated");
     if (this.isLeader) {
       await this.releaseLease();
     }
@@ -167,22 +203,30 @@ export class LeaderElectionService implements OnApplicationBootstrap {
       if (lease && this.isLeaseHeldByUs(lease)) {
         lease.spec.holderIdentity = null;
         lease.spec.renewTime = null;
-        await this.kubeClient.replaceNamespacedLease(this.leaseName, this.namespace, lease);
+        await this.kubeClient.replaceNamespacedLease(
+          this.leaseName,
+          this.namespace,
+          lease
+        );
         this.logger[this.logAtLevel](`Lease for ${this.leaseName} released.`);
       }
     } catch (error) {
-      this.logger.error({ message: 'Failed to release lease', error });
+      this.logger.error({ message: "Failed to release lease", error });
     }
   }
 
   private emitLeaderElectedEvent() {
     this.eventEmitter.emit(LeaderElectedEvent, { leaseName: this.leaseName });
-    this.logger[this.logAtLevel](`Instance became the leader for lease: ${this.leaseName}`);
+    this.logger[this.logAtLevel](
+      `Instance became the leader for lease: ${this.leaseName}`
+    );
   }
 
   private emitLeadershipLostEvent() {
     this.eventEmitter.emit(LeaderLostEvent, { leaseName: this.leaseName });
-    this.logger[this.logAtLevel](`Instance lost the leadership for lease: ${this.leaseName}`);
+    this.logger[this.logAtLevel](
+      `Instance lost the leadership for lease: ${this.leaseName}`
+    );
   }
 
   private becomeLeader() {
@@ -210,13 +254,15 @@ export class LeaderElectionService implements OnApplicationBootstrap {
         {},
         (type, apiObj, watchObj) => {
           if (apiObj && apiObj.metadata.name === this.leaseName) {
-            this.logger[this.logAtLevel](`Watch event type: ${type} for lease: ${this.leaseName}`);
+            this.logger[this.logAtLevel](
+              `Watch event type: ${type} for lease: ${this.leaseName}`
+            );
             switch (type) {
-              case 'ADDED':
-              case 'MODIFIED':
+              case "ADDED":
+              case "MODIFIED":
                 this.handleLeaseUpdate(apiObj);
                 break;
-              case 'DELETED':
+              case "DELETED":
                 this.handleLeaseDeletion();
                 break;
             }
@@ -224,16 +270,21 @@ export class LeaderElectionService implements OnApplicationBootstrap {
         },
         (err) => {
           if (err) {
-            this.logger.error({ message: `Watch for lease ended with error: ${err}, trying again in 5 seconds`, error: err });
+            this.logger.error({
+              message: `Watch for lease ended with error: ${err}, trying again in 5 seconds`,
+              error: err,
+            });
             // Restart the watch after a delay
             setTimeout(() => this.watchLeaseObject(), 5000);
           } else {
-            this.logger[this.logAtLevel]('Watch for lease gracefully closed');
+            this.logger[this.logAtLevel]("Watch for lease gracefully closed");
           }
         }
       );
     } catch (err) {
-      this.logger.error(`Failed to start watch for lease: ${err}, trying again in 5 seconds`);
+      this.logger.error(
+        `Failed to start watch for lease: ${err}, trying again in 5 seconds`
+      );
       // Retry starting the watch after a delay
       setTimeout(() => this.watchLeaseObject(), 5000);
     }
@@ -244,7 +295,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
     if (this.leaseRenewalTimeout) {
       clearTimeout(this.leaseRenewalTimeout);
     }
-  
+
     // Schedule the lease renewal to happen at the renewalInterval.
     // The renewal should occur before the lease duration expires.
     this.leaseRenewalTimeout = setTimeout(async () => {
@@ -252,13 +303,12 @@ export class LeaderElectionService implements OnApplicationBootstrap {
         try {
           await this.renewLease();
         } catch (error) {
-          this.logger.error({ message: 'Error while renewing lease', error });
+          this.logger.error({ message: "Error while renewing lease", error });
           // If lease renewal fails, consider handling it by attempting to re-acquire leadership or similar.
         }
       }
     }, this.renewalInterval);
   }
-  
 
   private handleLeaseUpdate(leaseObj: V1Lease) {
     if (this.isLeaseHeldByUs(leaseObj)) {
@@ -274,7 +324,10 @@ export class LeaderElectionService implements OnApplicationBootstrap {
   private handleLeaseDeletion() {
     if (!this.isLeader) {
       this.tryToBecomeLeader().catch((error) => {
-        this.logger.error({ message: 'Error while trying to become leader after lease deletion', error });
+        this.logger.error({
+          message: "Error while trying to become leader after lease deletion",
+          error,
+        });
       });
     }
   }
