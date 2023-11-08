@@ -1,7 +1,6 @@
-
 # NestJS Kubernetes Leader Election
 
-This NestJS module implements leader election for applications running on Kubernetes. It allows you to ensure that a particular task is only being performed by one pod at a time in a cluster.
+This NestJS module implements leader election for applications running on Kubernetes. It ensures that a particular task is only performed by one pod at a time in a cluster, which is crucial for high-availability and consistent operations.
 
 ## Installation
 
@@ -17,17 +16,16 @@ yarn add nestjs-k8s-leader-election
 
 ## Usage
 
-First, import the `LeaderElectionModule` into the root `AppModule`:
+Import the `LeaderElectionModule` into the root `AppModule` and configure it:
 
 ```typescript
+// ... other imports ...
 import { LeaderElectionModule } from 'nestjs-k8s-leader-election';
 
 @Module({
   imports: [
     LeaderElectionModule.forRoot({
-      leaseName: 'nestjs-leader-election',
-      namespace: 'default',
-      renewalInterval: 10000,
+      // ... configuration options ...
     }),
     // ... other modules
   ],
@@ -36,87 +34,54 @@ import { LeaderElectionModule } from 'nestjs-k8s-leader-election';
 export class AppModule {}
 ```
 
-Or with asynchronous configuration:
+## Advanced Usage with Watch Feature
 
-```typescript
-import { LeaderElectionModule } from 'nestjs-k8s-leader-election';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+The service utilizes the Kubernetes watch feature to monitor lease objects for changes. This is particularly beneficial for systems that require immediate response to leadership changes and can greatly improve the reliability and fault tolerance of distributed systems.
 
-@Module({
-  imports: [
-    LeaderElectionModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        leaseName: configService.get<string>('LEASE_NAME', 'nestjs-leader-election'),
-        namespace: configService.get<string>('LEASE_NAMESPACE', 'default'),
-        renewalInterval: configService.get<number>('LEASE_RENEWAL_INTERVAL', 10000),
-      }),
-    }),
-    // ... other modules
-  ],
-  // ... controllers, providers
-})
-export class AppModule {}
-```
+When a lease is modified or deleted, the service responds in real-time, allowing for quick failover and ensuring that only one instance of the application assumes leadership at any given time. This makes the system well-suited for handling scale and high load, as leadership transitions are smooth and immediate.
 
 ## Handling Events
 
-To react to leadership changes, use the `@OnEvent` decorator within your services:
+The module emits events when leadership is acquired or lost. Use the `@OnEvent` decorator to handle these events:
 
 ```typescript
-import { Injectable } from '@nestjs/common';
+// ... other imports ...
 import { OnEvent } from '@nestjs/event-emitter';
 import { LeaderElectedEvent, LeaderLostEvent } from 'nestjs-k8s-leader-election';
 
 @Injectable()
 export class TaskService {
-  
-  @OnEvent(LeaderElectedEvent.event)
-  onLeaderElected(event: LeaderElectedEvent) {
-    // Logic to execute when this instance becomes the leader
+  @OnEvent(LeaderElectedEvent)
+  handleLeaderElected(event: { leaseName: string }) {
+    // Logic when becoming the leader
   }
 
-  @OnEvent(LeaderLostEvent.event)
-  onLeaderLost(event: LeaderLostEvent) {
-    // Logic to execute when this instance loses leadership
+  @OnEvent(LeaderLostEvent)
+  handleLeaderLost(event: leaseName: string) {
+    // Logic when losing leadership
   }
 }
 ```
 
-This allows your application to only run certain tasks on the leader instance.
+## Configuration Options
 
-## Configuration
-
-The module can be configured with the following options:
-
-- `leaseName`: The name of the lease to create and watch in Kubernetes.
-- `namespace`: The Kubernetes namespace in which the lease should be created.
-- `renewalInterval`: The time in milliseconds between attempts to acquire or renew the lease.
-
-The default values are as follows:
-
-- `leaseName`: 'nestjs-leader-election'
-- `namespace`: 'default'
-- `renewalInterval`: 10000
+- `leaseName`: Name of the lease resource.
+- `namespace`: Kubernetes namespace for the lease.
+- `renewalInterval`: Interval to attempt lease renewal (in milliseconds).
 
 ## Kubernetes RBAC Configuration
 
-To interact with the Kubernetes API, specifically to manage leases, your pods must be associated with a ServiceAccount that has the necessary permissions. Below is a sample RBAC configuration that grants the required access:
-
-1. Create a `ServiceAccount` for your application:
+To allow your application to manage leases, set up the appropriate RBAC configuration in Kubernetes. This involves creating a `ServiceAccount`, `Role`, and `RoleBinding` to grant the necessary permissions.
 
 ```yaml
+# ServiceAccount
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: your-app-service-account
+  name: your-service-account
   namespace: default
-```
 
-2. Create a `Role` that grants permissions to manage leases:
-
-```yaml
+# Role
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -125,12 +90,9 @@ metadata:
 rules:
 - apiGroups: ["coordination.k8s.io"]
   resources: ["leases"]
-  verbs: ["get", "list", "create", "update", "patch", "delete"]
-```
+  verbs: ["get", "watch", "list", "create", "update", "delete"]
 
-3. Bind the `Role` to your `ServiceAccount` using a `RoleBinding`:
-
-```yaml
+# RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -138,7 +100,7 @@ metadata:
   namespace: default
 subjects:
 - kind: ServiceAccount
-  name: your-app-service-account
+  name: your-service-account
   namespace: default
 roleRef:
   kind: Role
@@ -146,33 +108,24 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ```
 
-When you set up your application's `Deployment`, make sure to specify the `serviceAccountName`:
+Then, reference the `ServiceAccount` in your pod's deployment configuration:
 
 ```yaml
 spec:
   template:
     spec:
-      serviceAccountName: your-app-service-account
-      containers:
-      - name: your-app
-        image: your-image
-        # ... other container configurations
+      serviceAccountName: your-service-account
+      # ... other specs ...
 ```
-
-This configuration will ensure that the pods running your application have the necessary permissions to perform leader election operations.
-
-Make sure to replace `your-app-service-account`, `lease-manager-role`, and other placeholders with the appropriate names for your application and namespace.
-```
-
-In your deployment specifications, you would then reference the created `ServiceAccount` to ensure your pods are running with the correct permissions. This is an important step to make the leader election process work within Kubernetes as it relies on specific API access to create and manage leases.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a pull request.
+Contributions to improve the module are welcome. Please submit your pull requests or issues as needed.
 
 ## Sponsor
 
 This project is sponsored and developed by Precise Finance, [precisefinance.ai](https://precisefinance.ai).
+
 
 ## License
 
