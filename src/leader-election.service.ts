@@ -89,6 +89,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
   private async acquireLease(lease: V1Lease): Promise<V1Lease> {
     // Set this instance as the holder of the lease
     lease.spec.holderIdentity = this.LEADER_IDENTITY;
+    lease.spec.leaseDurationSeconds = this.durationInSeconds;
     lease.spec.acquireTime = new V1MicroTime(new Date());
     lease.spec.renewTime = new V1MicroTime(new Date());
 
