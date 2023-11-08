@@ -70,7 +70,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
         this.becomeLeader();
       }
     } catch (error) {
-      this.logger.error('Error while trying to become leader', error);
+      this.logger.error({ message: 'Error while trying to become leader', error });
     }
   }
 
@@ -84,7 +84,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
         this.loseLeadership();
       }
     } catch (error) {
-      this.logger.error('Error while renewing lease', error);
+      this.logger.error({ message: 'Error while renewing lease', error });
       this.loseLeadership();
     }
   }
@@ -122,7 +122,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
       this.logger[this.logAtLevel]('Successfully created lease');
       return body;
     } catch (error) {
-      this.logger.error('Failed to create lease', error);
+      this.logger.error({ message: 'Failed to create lease', error });
       throw error;
     }
   }
@@ -137,7 +137,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
       );
       return body;
     } catch (error) {
-      this.logger.error("Error while updating lease", error);
+      this.logger.error({ message: "Error while updating lease", error });
       throw error;
     }
   }
@@ -171,7 +171,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
         this.logger[this.logAtLevel](`Lease for ${this.leaseName} released.`);
       }
     } catch (error) {
-      this.logger.error('Failed to release lease', error);
+      this.logger.error({ message: 'Failed to release lease', error });
     }
   }
 
@@ -224,7 +224,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
         },
         (err) => {
           if (err) {
-            this.logger.error(`Watch for lease ended with error: ${err}, trying again in 5 seconds`);
+            this.logger.error({ message: `Watch for lease ended with error: ${err}, trying again in 5 seconds`, error: err });
             // Restart the watch after a delay
             setTimeout(() => this.watchLeaseObject(), 5000);
           } else {
@@ -252,7 +252,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
         try {
           await this.renewLease();
         } catch (error) {
-          this.logger.error('Error while renewing lease', error);
+          this.logger.error({ message: 'Error while renewing lease', error });
           // If lease renewal fails, consider handling it by attempting to re-acquire leadership or similar.
         }
       }
@@ -274,7 +274,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
   private handleLeaseDeletion() {
     if (!this.isLeader) {
       this.tryToBecomeLeader().catch((error) => {
-        this.logger.error('Error while trying to become leader after lease deletion', error);
+        this.logger.error({ message: 'Error while trying to become leader after lease deletion', error });
       });
     }
   }
