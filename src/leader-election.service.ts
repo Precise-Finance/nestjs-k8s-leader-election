@@ -63,10 +63,24 @@ export class LeaderElectionService implements OnApplicationBootstrap {
     } else {
       await this.tryToBecomeLeader();
       this.watchLeaseObject();
+      // Try to become a leader up to two additional times if not successful on the first attempt
+      for (let attempt = 0; attempt < 2; attempt++) {
+        // If already a leader, no need to try again
+        if (this.isLeader) break;
+
+        // Wait for half the lease duration before each retry attempt
+        await new Promise((resolve) =>
+          setTimeout(resolve, this.durationInSeconds * 500)
+        );
+
+        // After the wait, try to become the leader again if we're not already
+        await this.tryToBecomeLeader();
+      }
     }
   }
 
   private async tryToBecomeLeader() {
+    this.logger[this.logAtLevel]("Trying to become leader...");
     try {
       let lease: V1Lease = await this.getLease();
       if (this.isLeaseExpired(lease) || !lease.spec.holderIdentity) {
@@ -275,11 +289,11 @@ export class LeaderElectionService implements OnApplicationBootstrap {
               message: `Watch for lease ended with error: ${err}, trying again in 5 seconds`,
               error: err,
             });
-            // Restart the watch after a delay
-            setTimeout(() => this.watchLeaseObject(), 5000);
           } else {
             this.logger[this.logAtLevel]("Watch for lease gracefully closed");
           }
+          // Restart the watch after a delay
+          setTimeout(() => this.watchLeaseObject(), 5000);
         }
       );
     } catch (err) {
