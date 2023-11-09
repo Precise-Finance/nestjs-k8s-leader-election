@@ -7,41 +7,241 @@ on:
   workflow_dispatch:
 
 jobs:
-  build_and_publish:
+  build_image:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4.0.0
-        with:
-          node-version: '18'
-          registry-url: 'https://registry.npmjs.org'
-          
-      - name: Cache node_modules
-        id: cache-node-modules  # Added an ID for this step
-        uses: actions/cache@v3
-        with:
-          path: node_modules  # caching node_modules directly
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-modules-
-      
-      - name: Install Dependencies
-        if: steps.cache-node-modules.outputs.cache-hit != 'true'  # Only run if cache was a miss
-        run: npm ci
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Checkout Helm repo
+      uses: actions/checkout@v4
+      with:
+        repository: Precise-Finance/charts
+        path: helm-repo
+        ref: main
+        token: ${{ secrets.GH_SECRET }}
+        
+    - name: Install yq
+      run: |
+        sudo wget -O /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.12.2/yq_linux_amd64
+        sudo chmod +x /usr/local/bin/yq
 
-      - name: Build the package
-        run: npm run build # Assumes you have a "build" script in your package.json
+    - name: Get current image tag
+      id: get_current_tag
+      run: |
+        CURRENT_TAG=$(yq eval ".image.tag" helm-repo/${{ github.event.repository.name }}/values.yaml)
+        echo "current_tag=$CURRENT_TAG" >> $GITHUB_OUTPUT
 
-      - name: Verify npm authentication
-        run: npm whoami
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PAT }}
+    - name: Check if tag needs update
+      id: check_tag
+      run: |
+        if [[ "${{ steps.get_current_tag.outputs.current_tag }}" == "$GITHUB_SHA" ]]; then
+          echo "Image tag is already up-to-date. Skipping."
+          echo "skip=true" >> $GITHUB_OUTPUT
+        else
+          echo "skip=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Azure npm auth
+      if: steps.check_tag.outputs.skip == 'false'
+      uses: ponicode/azure-devops-npm-action@master
+      with:
+          organisation: precise-finance
+          project: precise-finance
+          registry: precise-npm
+          user: danshapir
+          password: ${{ secrets.AZURE_PAT }}
+          email: dan@precisefinance.ai
+          # scope: ponicode
+    - run: cp `pwd`/.npmrc ~ # We need the .npmrc file in the $HOME directory
+    - name: Setup Node.js
+      if: steps.check_tag.outputs.skip == 'false'
+      uses: actions/setup-node@v4.0.0
+      with:
+        node-version: '18' # Adjust as necessary
+        
+    - name: Configure AWS credentials
+      if: steps.check_tag.outputs.skip == 'false'
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: eu-west-1
+
+    - name: Login to Amazon ECR Private
+      if: steps.check_tag.outputs.skip == 'false'
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+      
+    - name: Set up Docker Buildx
+      if: steps.check_tag.outputs.skip == 'false'
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Cache Docker layers
+      if: steps.check_tag.outputs.skip == 'false'
+      uses: actions/cache@v3.3.2
+      with:
+        path: /tmp/.buildx-cache
+        key: ${{ runner.os }}-buildx-${{ hashFiles('./Dockerfile', './package-lock.json') }}
+        # restore-keys: |
+        #     ${{ runner.os }}-buildx-${{ hashFiles('**/package-lock.json') }}
+        #     ${{ runner.os }}-buildx-
+
+
+    - name: Build, tag, and push docker image to Amazon ECR using Buildx
+      if: steps.check_tag.outputs.skip == 'false'
+      env:
+        REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        REPOSITORY: precise/${{ github.event.repository.name }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        docker buildx create --use
+        docker buildx build --push \
+          --cache-from=type=local,src=/tmp/.buildx-cache \
+          --cache-to=type=local,dest=/tmp/.buildx-cache,mode=max \
+          --build-arg BUILDKIT_INLINE_CACHE=1 \
+          -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
+
+
+    
+
+    - name: Update values.yaml
+      if: steps.check_tag.outputs.skip == 'false'
+      run: |
+        yq eval ".image.tag = \"$(echo $GITHUB_SHA )\"" -i helm-repo/${{ github.event.repository.name }}/values.yaml
+        cat helm-repo/${{ github.event.repository.name }}/values.yaml
+
+
+    - name: Set up Git
+      if: steps.check_tag.outputs.skip == 'false'
+      run: |
+        git config --global user.name "GitHub Action"
+        git config --global user.email "action@github.com"
+
+    - name: Commit and Push Changes
+      if: steps.check_tag.outputs.skip == 'false'
+      run: |
+        COMMIT_MSG=$(git log -1 --pretty=format:'%s')
+        cd helm-repo
+        BRANCH_NAME=${GITHUB_REF##refs/heads/}
+        git add .
+        git commit -m "Updated from $BRANCH_NAME: $COMMIT_MSG"
+
+    - name: Push Changes with Retries
+      run: |
+        cd helm-repo
+        retry=0
+        max_retries=5
+        while [ $retry -lt $max_retries ]; do
+          git pull --rebase && git push && break
+          retry=$((retry+1))
+          sleep 5
+        done
+
+    - name: Generate File
+      run: |
+        cd helm-repo
+        echo $(git rev-parse HEAD) > ../helm_commit.txt
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3.1.3
+      with:
+        name: helm-commit
+        path: helm_commit.txt
+
+  approval_and_tag_dev:
+    needs: [build_image] # Change the dependency to the newly separated jobs
+    if: contains(github.ref, 'refs/pull/') || startsWith(github.ref, 'refs/heads/feature/')
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Download artifact
+      uses: actions/download-artifact@v3.0.2
+      with:
+        name: helm-commit
+        path: helm-commit
+    - name: Set output
+      id: get_commit_id
+      run: |
+        echo $(cat helm-commit/helm_commit.txt)
+        echo "commit_id=$(cat helm-commit/helm_commit.txt)" >> $GITHUB_OUTPUT
+
+    - name: Get Commit Details
+      id: get_commit_details
+      run: |
+        echo $(git log -1 --pretty=format:'%s')
+        echo "commit_message=$(git log -1 --pretty=format:'%s')" >> $GITHUB_OUTPUT
+
+    - name: Get PR Details
+      id: get_pr_details
+      run: |
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "pr_link=${{ github.event.pull_request.html_url }}" >> $GITHUB_OUTPUT
+        else
+          echo "Not a PR event, skipping PR details extraction."
+        fi
+
+     
+    - name: send approval
+      uses: Precise-Finance/slack-approval@v2.15
+      env:
+        SLACK_APP_TOKEN:  ${{ secrets.SLACK_APP_TOKEN }}
+        SLACK_WORKSPACE: precisefinance
+        SLACK_BOT_TOKEN:  ${{ secrets.SLACK_BOT_TOKEN }}
+        SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+        SLACK_CHANNEL_ID: deployment-approvals-dev #${{ secrets.SLACK_CHANNEL_ID }}
+        DEPLOYMENT_ENV: DEV
+        COMMIT_SHA: ${{ steps.get_commit_id.outputs.commit_id }}
+        GH_SECRET: ${{ secrets.GH_SECRET }}
+        PR_LINK: ${{ steps.get_pr_details.outputs.pr_link }}
+        COMMIT_MESSAGE: ${{ steps.get_commit_details.outputs.commit_message }}
+      timeout-minutes: 10
   
+  approval_and_tag_prod:
+    needs: [build_image] # Change the dependency to the newly separated jobs
+    if: (github.ref == 'refs/heads/main') || (github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Download artifact
+      uses: actions/download-artifact@v3.0.2
+      with:
+        name: helm-commit
+        path: helm-commit
+    - name: Set output
+      id: get_commit_id
+      run: |
+        echo $(cat helm-commit/helm_commit.txt)
+        echo "commit_id=$(cat helm-commit/helm_commit.txt)" >> $GITHUB_OUTPUT
 
-      - name: Publish the package
-        run: npm publish --verbose
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPMJS_PAT }} # This should match the name of your secret
+    - name: Get Commit Details
+      id: get_commit_details
+      run: |
+        echo $(git log -1 --pretty=format:'%s')
+        echo "commit_message=$(git log -1 --pretty=format:'%s')" >> $GITHUB_OUTPUT
+
+    - name: Get PR Details
+      id: get_pr_details
+      run: |
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "pr_link=${{ github.event.pull_request.html_url }}" >> $GITHUB_OUTPUT
+        else
+          echo "Not a PR event, skipping PR details extraction."
+        fi
+      
+    - name: send approval
+      uses: Precise-Finance/slack-approval@v2.15
+      env:
+        SLACK_APP_TOKEN:  ${{ secrets.SLACK_APP_TOKEN }}
+        SLACK_WORKSPACE: precisefinance
+        SLACK_BOT_TOKEN:  ${{ secrets.SLACK_BOT_TOKEN }}
+        SLACK_SIGNING_SECRET: ${{ secrets.SLACK_SIGNING_SECRET }}
+        SLACK_CHANNEL_ID: deployment-approvals #${{ secrets.SLACK_CHANNEL_ID }}
+        DEPLOYMENT_ENV: Production
+        CONFIRMATION: true
+        COMMIT_SHA: ${{ steps.get_commit_id.outputs.commit_id }}
+        GH_SECRET: ${{ secrets.GH_SECRET }}
+        PR_LINK: ${{ steps.get_pr_details.outputs.pr_link }}
+        COMMIT_MESSAGE: ${{ steps.get_commit_details.outputs.commit_message }}
+      timeout-minutes: 10

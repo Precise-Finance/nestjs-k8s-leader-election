@@ -13,7 +13,16 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
+    - uses: ponicode/azure-devops-npm-action@master
+      with:
+          organisation: precise-finance
+          project: precise-finance
+          registry: precise-npm
+          user: danshapir
+          password: ${{ secrets.AZURE_PAT }}
+          email: dan@precisefinance.ai
+          # scope: ponicode
+    - run: cp `pwd`/.npmrc ~ # We need the .npmrc file in the $HOME directory
     - name: Setup Node.js
       uses: actions/setup-node@v4.0.0
       with:
@@ -24,9 +33,9 @@ jobs:
       uses: actions/cache@v3
       with:
         path: node_modules  # caching node_modules directly
-        key: ${{ runner.os }}-node-modules-${{ hashFiles('**/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-modules-
+        key: ${{ runner.os }}-node-modules-${{ hashFiles('./package-lock.json') }}
+        # restore-keys: |
+        #   ${{ runner.os }}-node-modules-
     
     - name: Install Dependencies
       if: steps.cache-node-modules.outputs.cache-hit != 'true'  # Only run if cache was a miss
@@ -44,7 +53,4 @@ jobs:
         name: JEST Tests            # Name of the check run which will be created
         path: reports/jest-*.xml    # Path to test results
         reporter: jest-junit        # Format of test results
-    
-
-
     
