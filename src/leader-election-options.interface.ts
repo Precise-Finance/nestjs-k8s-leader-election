@@ -3,6 +3,7 @@ export interface LeaderElectionOptions {
   namespace?: string;
   renewalInterval?: number;
   logAtLevel: 'log' | 'debug'
+  awaitLeadership?: boolean;
 }
 
 export const LEADER_ELECTION_OPTIONS = 'LEADER_ELECTION_OPTIONS';

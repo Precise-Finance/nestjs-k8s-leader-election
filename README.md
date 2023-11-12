@@ -68,6 +68,8 @@ export class TaskService {
 - `leaseName`: Name of the lease resource.
 - `namespace`: Kubernetes namespace for the lease.
 - `renewalInterval`: Interval to attempt lease renewal (in milliseconds).
+- `logAtLevel`: Can log at either log or debug
+- `awaitLeadership`: Should the nestjs app await assuming leadership (or failing to) to load?
 
 ## Kubernetes RBAC Configuration
 

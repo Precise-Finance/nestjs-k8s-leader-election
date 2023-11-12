@@ -32,6 +32,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
   private isLeader = false;
   private logAtLevel: "log" | "debug";
   private leaseRenewalTimeout: NodeJS.Timeout | null = null;
+  private awaitLeadership: boolean;
   LEADER_IDENTITY = `nestjs-${process.env.HOSTNAME}`;
 
   constructor(
@@ -48,6 +49,7 @@ export class LeaderElectionService implements OnApplicationBootstrap {
     this.renewalInterval = options.renewalInterval ?? 10000;
     this.durationInSeconds = 2 * (this.renewalInterval / 1000);
     this.logAtLevel = options.logAtLevel ?? "log";
+    this.awaitLeadership = options.awaitLeadership ?? false;
 
     process.on("SIGINT", () => this.gracefulShutdown());
     process.on("SIGTERM", () => this.gracefulShutdown());
@@ -61,21 +63,38 @@ export class LeaderElectionService implements OnApplicationBootstrap {
       this.isLeader = true;
       this.emitLeaderElectedEvent();
     } else {
-      await this.tryToBecomeLeader();
-      this.watchLeaseObject();
-      // Try to become a leader up to two additional times if not successful on the first attempt
-      for (let attempt = 0; attempt < 2; attempt++) {
-        // If already a leader, no need to try again
-        if (this.isLeader) break;
+      this.watchLeaseObject(); // This should start right away to catch any events.
 
-        // Wait for half the lease duration before each retry attempt
-        await new Promise((resolve) =>
-          setTimeout(resolve, this.durationInSeconds * 500)
-        );
-
-        // After the wait, try to become the leader again if we're not already
-        await this.tryToBecomeLeader();
+      if (this.awaitLeadership) {
+        // If awaitLeadership is true, block until leader election is complete.
+        await this.runLeaderElectionProcess();
+      } else {
+        // Otherwise, run the leader election process in the background.
+        this.runLeaderElectionProcess().catch((error) => {
+          this.logger.error({
+            message: "Leader election process failed",
+            error,
+          });
+        });
       }
+    }
+  }
+
+  private async runLeaderElectionProcess() {
+    // Attempt to become a leader.
+    await this.tryToBecomeLeader();
+
+    // If not successful, retry up to two more times.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (this.isLeader) break; // Break early if leadership is acquired.
+
+      // Wait for half the lease duration before retrying.
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.durationInSeconds * 500)
+      );
+
+      // Try to become the leader again.
+      await this.tryToBecomeLeader();
     }
   }
 
@@ -275,10 +294,10 @@ export class LeaderElectionService implements OnApplicationBootstrap {
             switch (type) {
               case "ADDED":
               case "MODIFIED":
-                this.handleLeaseUpdate(apiObj);
+                setTimeout(() => this.handleLeaseUpdate(apiObj), 2000);
                 break;
               case "DELETED":
-                this.handleLeaseDeletion();
+                setTimeout(() => this.handleLeaseDeletion(), 2000);
                 break;
             }
           }
@@ -328,7 +347,9 @@ export class LeaderElectionService implements OnApplicationBootstrap {
   private handleLeaseUpdate(leaseObj: V1Lease) {
     if (this.isLeaseHeldByUs(leaseObj)) {
       if (!this.isLeader) {
-        this.becomeLeader();
+        setTimeout(() => {
+          this.becomeLeader();
+        }, 2000); // Wait for 2 seconds before becoming the leader
       }
       this.scheduleLeaseRenewal();
     } else if (this.isLeader) {
