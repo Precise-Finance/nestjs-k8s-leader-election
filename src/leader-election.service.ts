@@ -109,12 +109,10 @@ export class LeaderElectionService implements OnApplicationBootstrap {
     lease.spec.acquireTime = new V1MicroTime(new Date());
     lease.spec.renewTime = new V1MicroTime(new Date());
 
+    const params = { name: this.leaseName, namespace: this.namespace, body: lease };
+
     try {
-      const { body } = await this.kubeClient.replaceNamespacedLease(
-        this.leaseName,
-        this.namespace,
-        lease,
-      );
+      const body = await this.kubeClient.replaceNamespacedLease(params);
       this.logger[this.logAtLevel]('Successfully acquired lease');
       return body;
     } catch (error) {
@@ -129,12 +127,9 @@ export class LeaderElectionService implements OnApplicationBootstrap {
       if (this.isLeaseHeldByUs(lease)) {
         this.logger[this.logAtLevel]('Renewing lease...');
         lease.spec.renewTime = new V1MicroTime(new Date());
+        const params = { name: this.leaseName, namespace: this.namespace, body: lease };
         try {
-          const { body } = await this.kubeClient.replaceNamespacedLease(
-            this.leaseName,
-            this.namespace,
-            lease,
-          );
+          const body = await this.kubeClient.replaceNamespacedLease(params);
           this.logger[this.logAtLevel]('Successfully renewed lease');
           return body;
         } catch (error) {
@@ -151,12 +146,9 @@ export class LeaderElectionService implements OnApplicationBootstrap {
   }
 
   private async getLease(): Promise<V1Lease> {
+    const params = { name: this.leaseName, namespace: this.namespace };
     try {
-      const { body } = await this.kubeClient.readNamespacedLease(
-        this.leaseName,
-        this.namespace,
-      );
-      return body;
+      return await this.kubeClient.readNamespacedLease(params);
     } catch (error) {
       if (error.response && error.response.statusCode === 404) {
         this.logger[this.logAtLevel]('Lease not found. Creating lease...');
@@ -181,11 +173,10 @@ export class LeaderElectionService implements OnApplicationBootstrap {
       },
     };
 
+    const params = { namespace: this.namespace, body: lease };
+
     try {
-      const { body } = await this.kubeClient.createNamespacedLease(
-        this.namespace,
-        lease,
-      );
+      const body = await this.kubeClient.createNamespacedLease(params);
       this.logger[this.logAtLevel]('Successfully created lease');
       return body;
     } catch (error) {
@@ -220,11 +211,8 @@ export class LeaderElectionService implements OnApplicationBootstrap {
       if (lease && this.isLeaseHeldByUs(lease)) {
         lease.spec.holderIdentity = null;
         lease.spec.renewTime = null;
-        await this.kubeClient.replaceNamespacedLease(
-          this.leaseName,
-          this.namespace,
-          lease,
-        );
+        const params = { name: this.leaseName, namespace: this.namespace, body: lease };
+        await this.kubeClient.replaceNamespacedLease(params);
         this.logger[this.logAtLevel](`Lease for ${this.leaseName} released.`);
       }
     } catch (error) {
